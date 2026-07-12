@@ -1,0 +1,450 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>スケッチコーチ ― 描いた絵にAIの優しい講評</title>
+<style>
+  :root{
+    --bg:#f7f2e9; --panel:#fffdf7; --panel2:#f3ecdd; --line:#e2d8c3;
+    --fg:#3d342a; --muted:#8a7d6a; --accent:#d9713e; --accent-soft:#f6e3d5;
+    --good:#4e8a5a; --danger:#c0504d; --chip:#efe7d6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    background:var(--bg);color:var(--fg);
+    font-family:system-ui,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    font-size:15px;line-height:1.7;
+  }
+  header{
+    display:flex;align-items:center;gap:10px;padding:12px 16px;
+    border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;
+  }
+  header h1{font-size:17px;margin:0;font-weight:700}
+  header h1 .tag{color:var(--accent)}
+  header .sub{color:var(--muted);font-size:12px}
+  header .spacer{flex:1}
+  button{
+    font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);
+    color:var(--fg);border-radius:10px;padding:9px 14px;transition:.12s;
+  }
+  button:hover{border-color:var(--accent)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+  button.primary:hover{background:#c5602f}
+  button.ghost{background:transparent}
+  .wrap{max-width:640px;margin:0 auto;padding:14px 14px 40px;display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
+  .card h2{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:700;letter-spacing:.04em}
+  .card h2 .opt{font-weight:400;letter-spacing:normal}
+  .muted{color:var(--muted);font-size:12.5px}
+  /* 画像スロット */
+  .slot{
+    border:2px dashed var(--line);border-radius:12px;min-height:130px;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;
+    text-align:center;color:var(--muted);padding:12px;cursor:pointer;transition:.12s;background:var(--panel2);
+    position:relative;overflow:hidden;
+  }
+  .slot.hot{border-color:var(--accent);background:var(--accent-soft);color:var(--fg)}
+  .slot.target{border-color:var(--accent)}
+  .slot .big{font-size:14.5px;color:var(--fg);font-weight:600}
+  .slot img.pic{max-width:100%;max-height:280px;border-radius:8px;display:block}
+  .slot .rm{
+    position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border-radius:50%;
+    background:rgba(0,0,0,.55);color:#fff;border:0;font-size:16px;line-height:1;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .slot .rm:hover{background:var(--danger)}
+  .hint-touch{display:none}
+  @media(pointer:coarse){ .hint-pc{display:none} .hint-touch{display:block} }
+  input[type=text]{
+    width:100%;padding:10px 12px;background:#fff;border:1px solid var(--line);
+    color:var(--fg);border-radius:10px;font:inherit;
+  }
+  .runrow{display:flex;flex-direction:column;gap:8px}
+  #btnRun{padding:14px;font-size:16px;border-radius:12px}
+  .status{min-height:22px;font-size:13px}
+  .status.err{color:var(--danger)}
+  .status.ok{color:var(--good)}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  /* 講評 */
+  #resultCard{display:none}
+  .sec{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:#fffefb}
+  .sec:last-child{margin-bottom:0}
+  .sec .sh{font-weight:700;margin-bottom:4px}
+  .sec.good{border-left:4px solid var(--good)}
+  .sec.grow{border-left:4px solid var(--accent)}
+  .sec.next{border-left:4px solid #7c6ab0}
+  .sec p{margin:4px 0;white-space:pre-wrap}
+  /* 履歴 */
+  .hist{display:flex;flex-direction:column;gap:8px}
+  .hist .h{
+    display:flex;gap:10px;align-items:center;background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;
+  }
+  .hist .h:hover{border-color:var(--accent)}
+  .hist .h img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff;flex:0 0 auto}
+  .hist .h .hx{flex:1;min-width:0}
+  .hist .h .hd{font-size:12px;color:var(--muted)}
+  .hist .h .ht{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+  .hist .h button{padding:4px 9px;font-size:12px;flex:0 0 auto}
+  footer{padding:14px;color:var(--muted);font-size:11.5px;text-align:center}
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(40,30,20,.45);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+  .modal.open{display:flex}
+  .modal .box{background:var(--panel);border:1px solid var(--line);border-radius:16px;max-width:520px;width:100%;padding:20px;max-height:90vh;overflow:auto}
+  .modal h3{margin:0 0 8px}
+  .modal label{display:block;margin:14px 0 5px;font-size:13px;color:var(--muted)}
+  .modal input,.modal select{width:100%;padding:9px 11px;background:#fff;border:1px solid var(--line);color:var(--fg);border-radius:9px;font:inherit}
+  .modal a{color:var(--accent)}
+  .modal .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+</style>
+
+<header>
+  <h1>🎨 <span class="tag">スケッチ</span>コーチ</h1>
+  <span class="sub">描いて、撮って、優しい講評</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="btnKey" title="APIキー・モデル設定">⚙ 設定</button>
+</header>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>① お手本 <span class="opt">― 模写の元。なしでもOK（想像描き・落書きの講評もできます）</span></h2>
+    <div class="slot" id="slotRef" tabindex="0">
+      <div class="ph">
+        <div class="big">お手本の画像</div>
+        <div class="muted hint-pc">クリックして選択 ／ ドロップ ／ Ctrl+V</div>
+        <div class="muted hint-touch">タップして選択（写真・スクショ）</div>
+      </div>
+    </div>
+    <input type="file" id="fileRef" accept="image/*" hidden>
+  </div>
+
+  <div class="card">
+    <h2>② じぶんの絵 <span class="opt">― 紙に描いたら、そのまま撮ってOK</span></h2>
+    <div class="slot" id="slotArt" tabindex="0">
+      <div class="ph">
+        <div class="big">📷 描いた絵を撮る・選ぶ</div>
+        <div class="muted hint-pc">クリックして選択 ／ ドロップ ／ Ctrl+V</div>
+        <div class="muted hint-touch">タップしてカメラ or アルバムから</div>
+      </div>
+    </div>
+    <input type="file" id="fileArt" accept="image/*" hidden>
+    <div style="margin-top:10px">
+      <input type="text" id="memo" placeholder="ひとことメモ（任意）例：30秒ジェスチャー／手を重点的に" maxlength="100">
+    </div>
+  </div>
+
+  <div class="runrow">
+    <button class="primary" id="btnRun" disabled>コーチに見せる ▶</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="resultCard">
+    <h2>コーチの講評</h2>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>これまでの練習 <span class="opt">― この端末に保存</span></h2>
+    <div class="hist" id="hist"><div class="muted">まだありません。1枚描いて見せてみましょう。</div></div>
+  </div>
+
+</div>
+
+<footer>キーはこの端末の localStorage にのみ保存。画像は講評時に Google(Gemini) へ送信されます・学習には使われません。共有PCでは設定からキーを消してください。</footer>
+
+<!-- 設定モーダル -->
+<div class="modal" id="keyModal">
+  <div class="box">
+    <h3>設定</h3>
+    <p class="muted">このアプリは Google の <b>Gemini（無料枠・クレカ不要）</b> を直接呼び出します。キーは<b>この端末にのみ</b>保存され、Google以外へは送りません。</p>
+    <label>Gemini API キー</label>
+    <input id="apiKey" type="password" placeholder="APIキーを貼り付け" autocomplete="off">
+    <p class="muted" style="margin:6px 0 0">取得：<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio → Get API key</a>（無料）</p>
+    <label>モデル</label>
+    <select id="modelSelect">
+      <option value="gemini-flash-latest">gemini-flash-latest（最新を自動追従・推奨）</option>
+      <option value="gemini-3.5-flash">gemini-3.5-flash（最新・高品質）</option>
+      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite（軽量・上限ゆるめ）</option>
+      <option value="gemini-2.0-flash">gemini-2.0-flash（フォールバック別枠）</option>
+    </select>
+    <div class="foot">
+      <button class="ghost" id="keyCancel">閉じる</button>
+      <button class="primary" id="keySave">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 設定・状態 ================= */
+const LS_KEY="sketchcoach_key", LS_MODEL="sketchcoach_model", LS_HIST="sketchcoach_hist";
+let MODEL=localStorage.getItem(LS_MODEL)||"gemini-flash-latest";
+const MODELPOOL=["gemini-flash-latest","gemini-3.5-flash","gemini-2.5-flash","gemini-2.5-flash-lite","gemini-2.0-flash"];
+const $=id=>document.getElementById(id);
+// GitHub Pages上は姉妹アプリ（SnapTeX・語彙ラボ）と同一オリジン → 保存済みキーを流用できる
+function getKey(){
+  return localStorage.getItem(LS_KEY)||localStorage.getItem("snaptex_key")||localStorage.getItem("goilab_apikey")||"";
+}
+function loadHist(){try{return JSON.parse(localStorage.getItem(LS_HIST))||[]}catch(e){return[]}}
+function saveHist(h){
+  h=h.slice(0,15);
+  // 容量あふれ（QuotaExceeded）時は古いものから間引いて再試行
+  while(h.length){
+    try{localStorage.setItem(LS_HIST,JSON.stringify(h));return;}
+    catch(e){h.pop();}
+  }
+  try{localStorage.removeItem(LS_HIST);}catch(e){}
+}
+
+/* ================= 画像スロット ================= */
+// images.ref / images.art = {mime, b64, dataUrl, thumb}
+const images={ref:null,art:null};
+let pasteTarget=null; // 最後に触ったスロット（Ctrl+Vの行き先）
+
+function fileToImage(blob){
+  // スマホ写真は巨大（数MB）なので、送信用に長辺1280pxへ縮小＋JPEG化。履歴用に160pxサムネも作る
+  return new Promise(res=>{
+    if(!blob||!/^image\//.test(blob.type||"")){res(null);return;}
+    const url=URL.createObjectURL(blob);
+    const img=new Image();
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      const scaled=drawScaled(img,1280,.85), thumb=drawScaled(img,160,.6);
+      res({mime:"image/jpeg",b64:scaled.split(",")[1]||"",dataUrl:scaled,thumb});
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
+    img.src=url;
+  });
+}
+function drawScaled(img,maxDim,quality){
+  const r=Math.min(1,maxDim/Math.max(img.naturalWidth,img.naturalHeight));
+  const w=Math.max(1,Math.round(img.naturalWidth*r)),h=Math.max(1,Math.round(img.naturalHeight*r));
+  const c=document.createElement("canvas");c.width=w;c.height=h;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h); // PNG透過→JPEGの黒つぶれ防止
+  ctx.drawImage(img,0,0,w,h);
+  return c.toDataURL("image/jpeg",quality);
+}
+async function setSlot(which,blob){
+  const im=await fileToImage(blob);
+  if(!im){setStatus("画像として読み込めませんでした。写真かスクショを選んでください。",true);return;}
+  images[which]=im;
+  renderSlot(which);
+  updateRun();
+  if(which==="art") setStatus("絵を受け取りました。「コーチに見せる」を押してください。",false,true);
+}
+function renderSlot(which){
+  const slot=which==="ref"?$("slotRef"):$("slotArt");
+  const im=images[which];
+  slot.querySelector(".ph").style.display=im?"none":"";
+  slot.querySelectorAll("img.pic, button.rm").forEach(e=>e.remove());
+  if(im){
+    const img=document.createElement("img");img.className="pic";img.src=im.dataUrl;img.alt="";
+    const rm=document.createElement("button");rm.className="rm";rm.textContent="×";rm.title="この画像を外す";
+    rm.onclick=e=>{e.stopPropagation();images[which]=null;renderSlot(which);updateRun();};
+    slot.append(img,rm);
+  }
+}
+function updateRun(){$("btnRun").disabled=!images.art||running;}
+
+function wireSlot(which){
+  const slot=which==="ref"?$("slotRef"):$("slotArt");
+  const file=which==="ref"?$("fileRef"):$("fileArt");
+  slot.addEventListener("click",()=>{pasteTarget=which;markTarget();file.click();});
+  slot.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();pasteTarget=which;file.click();}});
+  slot.addEventListener("focus",()=>{pasteTarget=which;markTarget();});
+  ["dragenter","dragover"].forEach(ev=>slot.addEventListener(ev,e=>{e.preventDefault();slot.classList.add("hot")}));
+  ["dragleave","drop"].forEach(ev=>slot.addEventListener(ev,e=>{e.preventDefault();slot.classList.remove("hot")}));
+  slot.addEventListener("drop",e=>{const f=e.dataTransfer?.files?.[0];if(f)setSlot(which,f);});
+  file.addEventListener("change",e=>{const f=e.target.files?.[0];if(f)setSlot(which,f);e.target.value="";});
+}
+function markTarget(){
+  $("slotRef").classList.toggle("target",pasteTarget==="ref"&&!images.ref);
+  $("slotArt").classList.toggle("target",pasteTarget==="art"&&!images.art);
+}
+wireSlot("ref");wireSlot("art");
+
+// Ctrl+V：最後に触ったスロット → 空いているスロット（お手本→絵の順）→ 絵を差し替え
+window.addEventListener("paste",e=>{
+  const items=(e.clipboardData||window.clipboardData)?.items||[];
+  let f=null;for(const it of items){if(it.type&&it.type.indexOf("image")===0){f=it.getAsFile();break;}}
+  if(!f)return;
+  e.preventDefault();
+  const which=pasteTarget||(!images.ref?"ref":!images.art?"art":"art");
+  pasteTarget=null;markTarget();
+  setSlot(which,f);
+});
+
+/* ================= プロンプト ================= */
+function buildPrompt(hasRef,memo){
+  const memoLine=memo?`学習者はこの絵について「${memo}」と伝えています。それも踏まえてください。`:"";
+  const intro=hasRef
+    ? "1枚目の画像はお手本（模写の元）、2枚目は学習者がそれを見て描いた絵です。お手本と見比べながら講評してください。"
+    : "画像は学習者が描いた絵です（お手本なし）。絵そのものの魅力と基礎（形のとらえ方・線・明暗）を見てください。";
+  return [
+    "あなたは絵の練習に長年伴走してきた、優しく的確なコーチです。",
+    intro,memoLine,
+    "",
+    "以下の3つの見出しを必ずこの順で使い、日本語で講評してください。",
+    "",
+    "🌟 いいところ",
+    hasRef
+      ? "・お手本と見比べて、よく捉えられている点を2つ。「どこが」を具体的に挙げて褒める。"
+      : "・この絵の良い点を2つ。「どこが」を具体的に挙げて褒める。",
+    "",
+    "🔍 のびしろ",
+    "・直すと最も効果が大きい点を1〜2個だけ。「どこが・どう違うか」と「次はどう描くといいか」をセットで、責めない言い方で。",
+    "",
+    "👣 つぎの一歩",
+    "・次に描くとき意識することを1つだけ、短い言葉で。",
+    "",
+    "ルール：",
+    "・専門用語には短い補足を付ける（例：プロポーション（全体の縦横の比率））。",
+    "・のびしろは3つ以上並べない。量より「次の1枚に効くこと」を優先する。",
+    "・人格や才能ではなく、絵の事実だけを語る。",
+    "・Markdown記法（**、#、-）は使わず、上の絵文字見出しと「・」の箇条書きだけで書く。",
+    "・前置きや締めの挨拶は書かない。見出しから始める。"
+  ].filter(Boolean).join("\n");
+}
+
+/* ================= Gemini Vision 呼び出し ================= */
+async function callCoach(){
+  const key=getKey();
+  if(!key){openKey();throw new Error("APIキーが未設定です（右上の⚙設定から・無料で取得できます）。");}
+  const hasRef=!!images.ref;
+  const prompt=buildPrompt(hasRef,$("memo").value.trim());
+  const parts=[{text:prompt}];
+  if(hasRef)parts.push({inlineData:{mimeType:images.ref.mime,data:images.ref.b64}});
+  parts.push({inlineData:{mimeType:images.art.mime,data:images.art.b64}});
+  const body={contents:[{parts}],generationConfig:{maxOutputTokens:2048,temperature:.4}};
+
+  const pool=[MODEL,...MODELPOOL.filter(m=>m!==MODEL)];
+  let lastErr="";
+  for(let mi=0;mi<pool.length;mi++){
+    const model=pool[mi];
+    const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    let res;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        res=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+      }catch(netErr){ throw new Error("ネットワークに接続できませんでした。オフラインか確認してください。"); }
+      if(res.status!==503&&res.status!==500)break;
+      if(attempt<2)await new Promise(r=>setTimeout(r,1500*(attempt+1)));
+    }
+    if(!res.ok){
+      let msg=res.status+" "+res.statusText, raw="";
+      try{const e=await res.json();raw=e.error?.message||"";msg=raw||msg;}catch(_){}
+      const modelGone=res.status===404||(res.status===400&&/no longer available|not\s*available|not\s*found|not\s*supported|unsupported|is not found/i.test(raw));
+      if((res.status===429||modelGone)&&mi<pool.length-1){ lastErr=modelGone?"モデル利用不可":"上限(429)"; continue; }
+      if(res.status===400&&/API.?key|API_KEY_INVALID/i.test(raw))msg="APIキーが無効です。設定を確認してください。";
+      else if(res.status===403)msg="APIキーが無効か、権限がありません。設定を確認してください。";
+      else if(res.status===429)msg="全モデルで無料枠の上限に達しました。しばらく待つか、明日また試してください（無料枠は日本の昼ごろリセット）。";
+      else if(modelGone)msg="利用できるモデルが見つかりませんでした。設定でモデルを変えて試すか、時間をおいてください。";
+      else if(res.status===503||res.status===500)msg="Geminiが一時的に混雑しています。数十秒おいて再試行してください。";
+      throw new Error(msg);
+    }
+    const data=await res.json();
+    if(data.promptFeedback?.blockReason) throw new Error("画像が安全上の理由でブロックされました。別の画像で試してください。");
+    const cand=data.candidates?.[0];
+    let text=(cand?.content?.parts||[]).map(p=>p.text).filter(Boolean).join("");
+    if(!text){
+      if(cand?.finishReason==="MAX_TOKENS") throw new Error("講評が長すぎて途中で切れました。もう一度試してください。");
+      throw new Error("講評を取得できませんでした。"+(cand?.finishReason?` (${cand.finishReason})`:""));
+    }
+    text=text.replace(/^```(?:markdown|md|text)?\s*\n?/i,"").replace(/\n?```\s*$/,"").trim();
+    if(model!==MODEL){MODEL=model;localStorage.setItem(LS_MODEL,MODEL);$("modelSelect").value=MODEL;}
+    return text;
+  }
+  throw new Error("講評できませんでした。"+(lastErr?`（${lastErr}）`:""));
+}
+
+/* ================= 講評の表示 ================= */
+// 🌟/🔍/👣 の見出しで区切ってカード表示。形式が崩れていたら全文をそのまま出す
+function renderResult(text){
+  const host=$("result");host.innerHTML="";
+  const secs=text.split(/(?=🌟|🔍|👣)/).map(s=>s.trim()).filter(Boolean);
+  const known=secs.filter(s=>/^[🌟🔍👣]/.test(s));
+  if(known.length<2){
+    const d=document.createElement("div");d.className="sec";const p=document.createElement("p");p.textContent=text;d.append(p);host.append(d);
+  }else{
+    for(const s of secs){
+      const cls=s.startsWith("🌟")?"good":s.startsWith("🔍")?"grow":s.startsWith("👣")?"next":"";
+      const nl=s.indexOf("\n");
+      const head=nl<0?s:s.slice(0,nl), bodyTxt=nl<0?"":s.slice(nl+1).trim();
+      const d=document.createElement("div");d.className="sec "+cls;
+      const h=document.createElement("div");h.className="sh";h.textContent=head;
+      d.append(h);
+      if(bodyTxt){const p=document.createElement("p");p.textContent=bodyTxt;d.append(p);}
+      host.append(d);
+    }
+  }
+  $("resultCard").style.display="";
+}
+
+/* ================= 実行 ================= */
+let running=false;
+$("btnRun").addEventListener("click",async()=>{
+  if(!images.art||running)return;
+  running=true;updateRun();
+  setStatus('<span class="spin"></span>コーチが見ています…（10〜20秒）');
+  try{
+    const text=await callCoach();
+    renderResult(text);
+    pushHist(text);
+    setStatus("講評が届きました。",false,true);
+    $("resultCard").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(err){
+    setStatus(err.message||String(err),true);
+  }finally{
+    running=false;updateRun();
+  }
+});
+function setStatus(html,isErr,isOk){
+  const s=$("status");s.innerHTML=html;s.className="status"+(isErr?" err":isOk?" ok":"");
+}
+
+/* ================= 履歴 ================= */
+function pushHist(text){
+  const h=loadHist();
+  h.unshift({ts:Date.now(),ref:images.ref?.thumb||null,art:images.art?.thumb||null,memo:$("memo").value.trim(),text});
+  saveHist(h);renderHist();
+}
+function renderHist(){
+  const h=loadHist(),el=$("hist");
+  if(!h.length){el.innerHTML='<div class="muted">まだありません。1枚描いて見せてみましょう。</div>';return;}
+  el.innerHTML="";
+  h.forEach((it,i)=>{
+    const row=document.createElement("div");row.className="h";
+    const img=document.createElement("img");img.src=it.art||it.ref||"";img.alt="";
+    const hx=document.createElement("div");hx.className="hx";
+    const hd=document.createElement("div");hd.className="hd";
+    hd.textContent=new Date(it.ts).toLocaleDateString("ja-JP",{year:"numeric",month:"short",day:"numeric"})+(it.memo?` ― ${it.memo}`:"");
+    const ht=document.createElement("div");ht.className="ht";ht.textContent=(it.text||"").replace(/\s+/g," ").slice(0,60);
+    hx.append(hd,ht);
+    const del=document.createElement("button");del.textContent="🗑";del.title="この記録を消す";
+    del.onclick=e=>{e.stopPropagation();const a=loadHist();a.splice(i,1);saveHist(a);renderHist();};
+    row.append(img,hx,del);
+    row.onclick=()=>{renderResult(it.text);$("resultCard").scrollIntoView({behavior:"smooth",block:"start"});};
+    el.append(row);
+  });
+}
+
+/* ================= 設定モーダル ================= */
+function openKey(){ $("apiKey").value=getKey(); $("modelSelect").value=MODEL; $("keyModal").classList.add("open"); $("apiKey").focus(); }
+$("btnKey").addEventListener("click",openKey);
+$("keyCancel").addEventListener("click",()=>$("keyModal").classList.remove("open"));
+$("keySave").addEventListener("click",()=>{
+  const k=$("apiKey").value.trim();
+  if(k)localStorage.setItem(LS_KEY,k); else localStorage.removeItem(LS_KEY);
+  MODEL=$("modelSelect").value; localStorage.setItem(LS_MODEL,MODEL);
+  $("keyModal").classList.remove("open");
+  setStatus(k?"キーを保存しました。":"キーを消去しました。",false,!!k);
+});
+$("keyModal").addEventListener("click",e=>{if(e.target===$("keyModal"))$("keyModal").classList.remove("open")});
+
+/* ================= 初期化 ================= */
+renderHist();
+$("modelSelect").value=MODEL;
+if(!getKey()) setStatus('まず右上の <b>⚙設定</b> から Gemini APIキー（無料）を入れてください。',false);
+</script>
