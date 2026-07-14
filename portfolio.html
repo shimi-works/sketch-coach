@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スケッチコーチ — 技術説明・設計思想</title>
+<meta name="description" content="描いた絵をAIコーチが優しく講評する練習アプリ スケッチコーチ の技術説明・設計思想。単一HTML・Gemini vision・ストリーミング。">
+</head>
+<body>
+<style>
+  :root{
+    --paper:#F7F4EC; --card:#FFFFFF; --ink:#25211B; --sub:#6C6456;
+    --line:#E4DECF; --accent:#B0542E; --accent-soft:#F0E3D6;
+    --grow:#3F6B4C; --grow-soft:#E7EFE8;
+    --mincho:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif JP",Georgia,serif;
+    --gothic:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,Meiryo,"Segoe UI",sans-serif;
+    --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;
+    --shadow:0 1px 2px rgba(60,45,30,.05),0 10px 30px rgba(60,45,30,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#17140F; --card:#201C16; --ink:#ECE6DA; --sub:#9C9384;
+      --line:#332C22; --accent:#D2854F; --accent-soft:#2C2118;
+      --grow:#82B591; --grow-soft:#1C2620;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--gothic);
+    line-height:1.85;-webkit-font-smoothing:antialiased;font-feature-settings:"palt" 1}
+  .wrap{max-width:760px;margin:0 auto;padding:56px 22px 100px}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft)}
+
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 14px}
+  h1{font-family:var(--mincho);font-weight:600;font-size:clamp(34px,7vw,52px);line-height:1.15;
+    letter-spacing:.01em;margin:0 0 14px;text-wrap:balance}
+  .lede{font-family:var(--mincho);font-size:clamp(17px,2.6vw,21px);color:var(--ink);
+    line-height:1.7;margin:0 0 26px;text-wrap:balance}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 10px;margin:0 0 8px}
+  .meta span{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--sub);
+    border:1px solid var(--line);border-radius:20px;padding:5px 12px;white-space:nowrap}
+  .growline{margin:34px 0 4px}
+
+  section{margin-top:56px}
+  h2{font-family:var(--mincho);font-weight:600;font-size:clamp(22px,4vw,28px);
+    margin:0 0 6px;letter-spacing:.01em}
+  .sec-label{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--sub);margin:0 0 18px}
+  p{margin:0 0 16px;max-width:64ch}
+  strong{color:var(--accent);font-weight:600}
+  .word{font-family:var(--mincho);font-weight:600}
+
+  .decision{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:4px;padding:22px 24px;margin:16px 0;box-shadow:var(--shadow)}
+  .decision h3{font-family:var(--mincho);font-size:19px;font-weight:600;margin:2px 0 16px;letter-spacing:.01em}
+  dl{margin:0;display:grid;gap:12px}
+  dl > div{display:grid;grid-template-columns:64px 1fr;gap:14px;align-items:baseline}
+  dt{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--accent);
+    text-transform:uppercase;padding-top:2px}
+  dd{margin:0;color:var(--ink)}
+  dd.q{color:var(--sub)}
+
+  .fmap{display:grid;grid-template-columns:1fr;gap:14px}
+  @media(min-width:620px){.fmap{grid-template-columns:1fr 1fr}}
+  .fgroup{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .fgroup .g{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--sub);margin:0 0 10px}
+  .tags{display:flex;flex-wrap:wrap;gap:7px}
+  .tag{font-size:13px;background:var(--accent-soft);color:var(--ink);border-radius:20px;padding:5px 12px;line-height:1.4}
+
+  .stack{display:grid;gap:2px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .stack .row{display:grid;grid-template-columns:130px 1fr;gap:0;background:var(--card)}
+  .stack .k{font-family:var(--mono);font-size:12px;color:var(--accent);padding:12px 16px;letter-spacing:.03em}
+  .stack .v{padding:12px 16px;color:var(--ink);font-size:14.5px;border-left:1px solid var(--line)}
+  @media(max-width:520px){.stack .row{grid-template-columns:1fr}.stack .v{border-left:0;padding-top:0}}
+
+  .limit{background:var(--grow-soft);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+  .limit .g{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--grow);margin:0 0 10px}
+  .limit ul{margin:0;padding-left:18px}
+  .limit li{margin:0 0 9px;color:var(--ink)}
+  .limit li:last-child{margin-bottom:0}
+  .limit b{color:var(--grow);font-weight:600}
+
+  .axis{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:26px 24px;box-shadow:var(--shadow)}
+  .axis .quote{font-family:var(--mincho);font-size:20px;line-height:1.7;margin:0 0 12px;color:var(--ink);text-wrap:balance}
+
+  footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11.5px;color:var(--sub);letter-spacing:.04em}
+
+  @media (prefers-reduced-motion: no-preference){
+    .fade{opacity:0;transform:translateY(10px);animation:rise .7s ease forwards}
+    @keyframes rise{to{opacity:1;transform:none}}
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="fade">
+    <p class="eyebrow">Case Study — Web App / LLM Vision</p>
+    <h1><span class="word">スケッチコーチ</span></h1>
+    <p class="lede">紙に描いて、撮って見せると、AIコーチが優しく講評する絵の練習ツール。<br>
+      お題とタイマーで始めて、講評で次の一枚につなげる。</p>
+    <div class="meta">
+      <span>制作 / 個人</span>
+      <span>形態 / 単一HTML・ノーサーバー</span>
+      <span>LLM / Google Gemini vision（無料枠）</span>
+      <span>保存 / localStorage</span>
+      <span>2026</span>
+    </div>
+
+    <svg class="growline" viewBox="0 0 720 90" preserveAspectRatio="none" width="100%" height="72" aria-hidden="true">
+      <path d="M0,78 C90,74 150,60 240,58 S420,50 500,36 640,18 720,12"
+        style="fill:none;stroke:var(--grow);stroke-width:2;vector-effect:non-scaling-stroke"></path>
+      <path d="M0,84 C120,82 200,76 320,72 S520,60 720,46"
+        style="fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.5;vector-effect:non-scaling-stroke"></path>
+    </svg>
+  </header>
+
+  <section class="fade">
+    <h2>これは何か</h2>
+    <p class="sec-label">Overview</p>
+    <p>お題を引き、タイマーで時間を計って紙に描き、スマホで撮って見せると、
+      言語モデルが<span class="word">コーチ</span>として講評を返す。
+      講評は必ず <strong>いいところ → のびしろ → つぎの一歩</strong> の順で、
+      改善点は最大2つまで。練習の記録は端末に貯まり、続けるほど自分の変化が見える。</p>
+    <p>お手本（模写の元）を渡せば「見比べ講評」、渡さなければ想像描き・落書きの講評になる。
+      描く体験そのものはあえてアプリ化せず、<strong>紙とえんぴつの練習に伴走する</strong>道具として設計した。</p>
+  </section>
+
+  <section class="fade">
+    <h2>設計思想</h2>
+    <p class="sec-label">Design Philosophy</p>
+
+    <p><strong>講評の「優しさ」を仕様にした。</strong>
+      絵の練習が続かない最大の理由は技術ではなく挫折にある。だからコーチの人格をプロンプトで固定した——
+      良い点を先に具体的な箇所で褒める・改善は「次の一枚に効くこと」だけを1〜2個・
+      人格や才能ではなく絵の事実だけを語る。優しさは飾りではなく、<em>継続のための機能</em>として設計している。</p>
+
+    <p><strong>描く体験は紙に残した。</strong>
+      ブラウザにキャンバスを作ることもできたが、描き心地は本物の紙に勝てない。
+      アプリの役割を「お題 → 時間 → 講評 → 記録」の伴走に絞り、
+      描く行為はいちばん気持ちいい道具（紙・えんぴつ・板タブ何でも）に任せる分業にした。</p>
+
+    <p><strong>制約を設計に変えた。</strong>
+      お金をかけない・サーバーを持たない・個人で使う。
+      鍵は各自が持ち込み（BYOK）、データは端末の localStorage、通信は無料枠のみ。
+      姉妹アプリ（語彙ラボ・SnapTeX 等）と同じ土台なので、同一オリジン上では保存済みのキーをそのまま流用できる。</p>
+  </section>
+
+  <section class="fade">
+    <h2>技術構成</h2>
+    <p class="sec-label">Architecture</p>
+    <div class="stack">
+      <div class="row"><div class="k">配信形態</div><div class="v">単一HTMLファイル。ビルド工程・フレームワーク・依存パッケージなし。ダブルクリックでも静的ホスティングでも動く。</div></div>
+      <div class="row"><div class="k">AI 呼び出し</div><div class="v">ブラウザから Gemini API（vision）を直接叩く。お手本と自分の絵の2枚＋講評プロンプトを送り、SSEストリーミングで受信しながら逐次表示。</div></div>
+      <div class="row"><div class="k">画像前処理</div><div class="v">スマホ写真（数MB）は送信前に canvas で長辺1280px・JPEGへ縮小。無料枠の消費と通信量を1/10以下に抑える。</div></div>
+      <div class="row"><div class="k">永続化</div><div class="v">localStorage に練習履歴（サムネイル・メモ・講評全文）。容量あふれは古い記録から自動で間引く。</div></div>
+      <div class="row"><div class="k">オフライン</div><div class="v">お題辞書とタイマーはローカル実装なので、鍵もネットもない状態で練習だけは始められる。</div></div>
+    </div>
+  </section>
+
+  <section class="fade">
+    <h2>主要な技術的判断</h2>
+    <p class="sec-label">Key Decisions — 課題 / 判断 / 理由</p>
+
+    <div class="decision">
+      <h3>「思考モード」の世代差を吸収する</h3>
+      <dl>
+        <div><dt>課題</dt><dd class="q">最新のGeminiは既定で思考モードが有効になり、講評を書き始めるまで数十秒待たされる。しかも無効化の指定方法がモデル世代ごとに違い、間違えるとAPIエラーになる。</dd></div>
+        <div><dt>判断</dt><dd>モデル名から思考設定の<strong>候補列</strong>を組み立て（3系=thinkingLevel:"minimal"／2.5系=thinkingBudget:0／2.0系=指定なし）、思考設定が原因の400なら<strong>同じモデルのまま次の候補で再試行</strong>する。実体が変わる別名（flash-latest）は全候補を順に試す。</dd></div>
+        <div><dt>理由</dt><dd>モデルは今後も入れ替わる。「正しい指定を知っている」ことに頼らず、「間違えても自動で立て直す」構造にしておく方が長持ちする。</dd></div>
+      </dl>
+    </div>
+
+    <div class="decision">
+      <h3>ストリーミングで体感速度を設計する</h3>
+      <dl>
+        <div><dt>課題</dt><dd class="q">講評は文章量があり、全文を待ってから表示すると生成が速くても「遅いアプリ」に感じる。</dd></div>
+        <div><dt>判断</dt><dd>streamGenerateContent（SSE）に切り替え、受信した端から講評カードを描画。開始までの間は経過秒数を表示し、書き始めた瞬間に結果へスクロールする。</dd></div>
+        <div><dt>理由</dt><dd>体感の待ち時間は「最初の文字が出るまで」で決まる。思考モードの抑制と合わせ、待ちの数十秒を数秒に縮めた。</dd></div>
+      </dl>
+    </div>
+
+    <div class="decision">
+      <h3>講評フォーマットを通信プロトコルにする</h3>
+      <dl>
+        <div><dt>課題</dt><dd class="q">LLMの出力は形式が揺れる。JSONを要求すると壊れたときに全滅し、自由文だと構造化表示ができない。</dd></div>
+        <div><dt>判断</dt><dd>3つの絵文字見出しを<strong>マーカー</strong>としてプロンプトで固定し、画面側でマーカーを線画SVGの見出しカードに変換する。マーカーが検出できない出力は、そのまま全文表示にフォールバックする。</dd></div>
+        <div><dt>理由</dt><dd>「構造化はしたいが、壊れても読める」を両立する最小の取り決め。ストリーミング中の不完全なテキストでも段階的に描画できる。</dd></div>
+      </dl>
+    </div>
+
+    <div class="decision">
+      <h3>表示バグから検証を強化する</h3>
+      <dl>
+        <div><dt>課題</dt><dd class="q">公開直後、講評カードが一度も表示されないバグが出た。CSSの display:none に対し style.display="" を代入していた——空文字はインラインスタイルの削除であり、表示にはならない。ヘッドレス検証はインライン値だけを見ていたため素通りした。</dd></div>
+        <div><dt>判断</dt><dd>表示確認を <strong>getComputedStyle</strong>（実際に画面へ出ているか）基準に改め、講評パース・履歴・画像縮小・エラー処理を実行するテストコードをヘッドレスブラウザに注入する検証を毎回通す。</dd></div>
+        <div><dt>理由</dt><dd>「編集が成功した」と「動く」は別物。バグは直すだけでなく、同じ種類のバグを二度と通さない検査に変換する。</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="fade">
+    <h2>機能マップ</h2>
+    <p class="sec-label">Features</p>
+    <div class="fmap">
+      <div class="fgroup"><p class="g">練習する</p><div class="tags">
+        <span class="tag">お題ジェネレータ（6ジャンルのローカル辞書）</span>
+        <span class="tag">ジェスチャードローイング用タイマー（30秒〜5分）</span>
+        <span class="tag">終了チャイム（WebAudio・外部音源なし）</span>
+      </div></div>
+      <div class="fgroup"><p class="g">見せる・講評</p><div class="tags">
+        <span class="tag">お手本との見比べ講評（お手本は任意）</span>
+        <span class="tag">スマホカメラでそのまま撮影</span>
+        <span class="tag">いいところ→のびしろ→つぎの一歩</span>
+        <span class="tag">講評のストリーミング表示</span>
+        <span class="tag">講評コピー</span>
+      </div></div>
+      <div class="fgroup"><p class="g">続ける</p><div class="tags">
+        <span class="tag">練習履歴（サムネ＋メモ＋講評全文）</span>
+        <span class="tag">お題の自動記録</span>
+        <span class="tag">タップで講評を読み返す</span>
+      </div></div>
+      <div class="fgroup"><p class="g">土台</p><div class="tags">
+        <span class="tag">モデル自動切替（429/廃止に耐える）</span>
+        <span class="tag">思考モード自動抑制</span>
+        <span class="tag">画像の自動縮小</span>
+        <span class="tag">姉妹アプリとのAPIキー共有</span>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="fade">
+    <h2>制約と割り切り</h2>
+    <p class="sec-label">Honest Limitations</p>
+    <div class="limit">
+      <p class="g">承知の上で選んだトレードオフ</p>
+      <ul>
+        <li><b>講評の目はモデルの視覚理解に依存する。</b> 細かなデッサンの狂いを見落とす・逆に言い過ぎることがある。だからこそ改善点を最大2つに絞り、「網羅的な採点」ではなく「次の一枚への声かけ」に役割を限定した。</li>
+        <li><b>APIキーは端末内に保存＝個人利用が前提。</b> 不特定多数への提供にはプロキシが要る。ファイルを渡す形なら各自が自分の鍵を入れるので、無料のまま安全に配れる。</li>
+        <li><b>アプリ内では描けない。</b> 意図的な分業だが、「その場でちょっと直して再提出」の速度は犠牲にしている。描画は将来も専用ツールに任せる方針。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="fade">
+    <h2>この作品の位置づけ</h2>
+    <p class="sec-label">Portfolio Axis</p>
+    <div class="axis">
+      <p class="quote">わたしの制作物に共通する軸は、<br>「学習と創作の<span class="word">体験</span>を設計すること」。</p>
+      <p>音楽理論ゼロでも曲が完成する Chord Lab、語彙が自分専用に育つ語彙ラボ、
+        文学を理解しながら読める栞——テーマは違っても、狙いはいつも
+        「そのままでは続かないものを、続けたくなる体験に変える」こと。
+        <strong>スケッチコーチ</strong>は、その軸を「絵の練習」に向けたもの。
+        上手さを測る道具ではなく、<em>また描きたくなる理由</em>を返す道具として作った。</p>
+    </div>
+  </section>
+
+  <footer>
+    スケッチコーチ — 技術説明・設計思想 / 個人制作 / 単一HTML + Gemini vision + localStorage<br>
+    アプリ本体: <a href="./">スケッチコーチを開く</a>
+  </footer>
+
+</div>
+</body>
+</html>
