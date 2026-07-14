@@ -1,6 +1,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>スケッチコーチ ― 描いた絵にAIの優しい講評</title>
+<meta name="description" content="お題を引いて、タイマーで描いて、撮って見せると、AIコーチが優しく講評。絵の練習を続けるための道具です。">
+<meta property="og:title" content="スケッチコーチ ― 描いた絵にAIの優しい講評">
+<meta property="og:description" content="お題を引いて、タイマーで描いて、撮って見せると、AIコーチが優しく講評。">
+<meta property="og:url" content="https://shimi-works.github.io/sketch-coach/">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23d9713e" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4L16.2 4.8a1.7 1.7 0 0 1 2.4 0l.6.6a1.7 1.7 0 0 1 0 2.4L8 19l-4 1Z"/><path d="M14.5 6.5l3 3"/></svg>'>
 <style>
   :root{
     --bg:#f7f2e9; --panel:#fffdf7; --panel2:#f3ecdd; --line:#e2d8c3;
@@ -97,19 +102,89 @@
   .modal input,.modal select{width:100%;padding:9px 11px;background:#fff;border:1px solid var(--line);color:var(--fg);border-radius:9px;font:inherit}
   .modal a{color:var(--accent)}
   .modal .foot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px}
+  /* 線画SVGアイコン（正典: apps/dev-os/assets/icons.html） */
+  .ic{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;width:18px;height:18px;vertical-align:-3.5px}
+  .ic.fillc,.ic .fillc{fill:currentColor;stroke:none}
+  button .ic{margin-right:4px}
+  .card h2 .ic{width:15px;height:15px;vertical-align:-2.5px}
+  /* 練習メニュー（お題＋タイマー） */
+  .odai{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .odai select{padding:9px 11px;background:#fff;border:1px solid var(--line);color:var(--fg);border-radius:9px;font:inherit}
+  #odaiText{
+    background:var(--accent-soft);border:1px dashed var(--accent);border-radius:10px;
+    padding:10px 14px;font-size:16px;font-weight:700;display:none;margin-top:10px;
+  }
+  .timer{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+  .seg button{border:0;border-radius:0;padding:8px 12px;background:transparent}
+  .seg button.on{background:var(--accent);color:#fff;font-weight:700}
+  #timeLeft{
+    font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.02em;
+    min-width:96px;text-align:center;color:var(--fg);
+  }
+  #timeLeft.running{color:var(--accent)}
+  /* 講評ツールバー */
+  .resbar{display:flex;justify-content:flex-end;margin-top:10px}
 </style>
 
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="ic-pen" viewBox="0 0 24 24"><path d="M4 20l1-4L16.2 4.8a1.7 1.7 0 0 1 2.4 0l.6.6a1.7 1.7 0 0 1 0 2.4L8 19l-4 1Z"/><path d="M14.5 6.5l3 3"/></symbol>
+  <symbol id="ic-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M12 3v2.4M12 18.6V21M21 12h-2.4M5.4 12H3M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7M18.4 18.4l-1.7-1.7M7.3 7.3 5.6 5.6"/></symbol>
+  <symbol id="ic-camera" viewBox="0 0 24 24"><path d="M9 5.5 7.5 7.5H4.5a1 1 0 0 0-1 1V18a1 1 0 0 0 1 1h15a1 1 0 0 0 1-1V8.5a1 1 0 0 0-1-1h-3L15 5.5H9Z"/><circle cx="12" cy="13" r="3.4"/></symbol>
+  <symbol id="ic-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><circle cx="9" cy="10" r="1.6"/><path d="M20.5 15.5 16 11l-8.5 8.5"/></symbol>
+  <symbol id="ic-star" viewBox="0 0 24 24"><path d="M12 4l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 9.7l5.4-.8L12 4Z"/></symbol>
+  <symbol id="ic-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M15.8 15.8 20.5 20.5"/></symbol>
+  <symbol id="ic-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M15.6 8.4l-2 5.2-5.2 2 2-5.2 5.2-2Z"/></symbol>
+  <symbol id="ic-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.3V12l3.2 2"/></symbol>
+  <symbol id="ic-bulb" viewBox="0 0 24 24"><path d="M9.5 18h5M10.3 21h3.4M12 3a6 6 0 0 0-3.8 10.6c.8.7 1.3 1.4 1.3 2.4h5c0-1 .5-1.7 1.3-2.4A6 6 0 0 0 12 3Z"/></symbol>
+  <symbol id="ic-refresh" viewBox="0 0 24 24"><path d="M21 4.5V10h-5.5M3 19.5V14h5.5"/><path d="M4.3 9.5a8 8 0 0 1 13.2-3L21 10M19.7 14.5a8 8 0 0 1-13.2 3L3 14"/></symbol>
+  <symbol id="ic-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="1.8"/><path d="M5.5 15H5a1.8 1.8 0 0 1-1.8-1.8V5A1.8 1.8 0 0 1 5 3.2h8.2A1.8 1.8 0 0 1 15 5v.5"/></symbol>
+  <symbol id="ic-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M6.5 7l1 12a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1l1-12M10 11v6M14 11v6"/></symbol>
+  <symbol id="ic-eye" viewBox="0 0 24 24"><path d="M2.8 12S6.5 5.8 12 5.8 21.2 12 21.2 12 17.5 18.2 12 18.2 2.8 12 2.8 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="ic-play" viewBox="0 0 24 24"><path d="M8 5.2v13.6L19 12 8 5.2Z"/></symbol>
+  <symbol id="ic-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></symbol>
+  <symbol id="ic-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".95" class="fillc"/></symbol>
+</svg>
+
 <header>
-  <h1>🎨 <span class="tag">スケッチ</span>コーチ</h1>
+  <h1><svg class="ic" style="color:var(--accent)"><use href="#ic-pen"/></svg> <span class="tag">スケッチ</span>コーチ</h1>
   <span class="sub">描いて、撮って、優しい講評</span>
   <span class="spacer"></span>
-  <button class="ghost" id="btnKey" title="APIキー・モデル設定">⚙ 設定</button>
+  <a class="navlink" id="lnkTech" href="portfolio.html" title="技術説明・設計思想" style="font-size:13px;color:var(--fg);text-decoration:none;border:1px solid var(--line);border-radius:9px;padding:8px 12px">技術</a>
+  <button class="ghost" id="btnKey" title="APIキー・モデル設定"><svg class="ic"><use href="#ic-settings"/></svg>設定</button>
 </header>
 
 <div class="wrap">
 
   <div class="card">
-    <h2>① お手本 <span class="opt">― 模写の元。なしでもOK（想像描き・落書きの講評もできます）</span></h2>
+    <h2><svg class="ic"><use href="#ic-bulb"/></svg> きょうの練習 <span class="opt">― お題を引いて、時間を計って描く（どちらも使わなくてもOK）</span></h2>
+    <div class="odai">
+      <select id="odaiGenre">
+        <option value="hand">手</option>
+        <option value="pose">人物ポーズ</option>
+        <option value="animal">動物</option>
+        <option value="object">日用品</option>
+        <option value="scene">風景・場所</option>
+        <option value="free">自由</option>
+      </select>
+      <button id="btnOdai"><svg class="ic"><use href="#ic-refresh"/></svg>お題を引く</button>
+    </div>
+    <div id="odaiText"></div>
+    <div class="timer">
+      <svg class="ic" style="color:var(--muted)"><use href="#ic-clock"/></svg>
+      <div class="seg" id="durSeg">
+        <button data-s="30" class="on">30秒</button>
+        <button data-s="60">1分</button>
+        <button data-s="120">2分</button>
+        <button data-s="300">5分</button>
+      </div>
+      <span id="timeLeft">0:30</span>
+      <button id="btnTimer" class="primary" style="padding:9px 14px"><svg class="ic"><use href="#ic-play"/></svg>スタート</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><svg class="ic"><use href="#ic-image"/></svg> ① お手本 <span class="opt">― 模写の元。なしでもOK（想像描き・落書きの講評もできます）</span></h2>
     <div class="slot" id="slotRef" tabindex="0">
       <div class="ph">
         <div class="big">お手本の画像</div>
@@ -121,10 +196,10 @@
   </div>
 
   <div class="card">
-    <h2>② じぶんの絵 <span class="opt">― 紙に描いたら、そのまま撮ってOK</span></h2>
+    <h2><svg class="ic"><use href="#ic-camera"/></svg> ② じぶんの絵 <span class="opt">― 紙に描いたら、そのまま撮ってOK</span></h2>
     <div class="slot" id="slotArt" tabindex="0">
       <div class="ph">
-        <div class="big">📷 描いた絵を撮る・選ぶ</div>
+        <div class="big"><svg class="ic"><use href="#ic-camera"/></svg> 描いた絵を撮る・選ぶ</div>
         <div class="muted hint-pc">クリックして選択 ／ ドロップ ／ Ctrl+V</div>
         <div class="muted hint-touch">タップしてカメラ or アルバムから</div>
       </div>
@@ -136,17 +211,20 @@
   </div>
 
   <div class="runrow">
-    <button class="primary" id="btnRun" disabled>コーチに見せる ▶</button>
+    <button class="primary" id="btnRun" disabled><svg class="ic"><use href="#ic-eye"/></svg>コーチに見せる</button>
     <div class="status" id="status"></div>
   </div>
 
   <div class="card" id="resultCard">
-    <h2>コーチの講評</h2>
+    <h2><svg class="ic"><use href="#ic-eye"/></svg> コーチの講評</h2>
     <div id="result"></div>
+    <div class="resbar">
+      <button id="btnCopy"><svg class="ic"><use href="#ic-copy"/></svg>講評をコピー</button>
+    </div>
   </div>
 
   <div class="card">
-    <h2>これまでの練習 <span class="opt">― この端末に保存</span></h2>
+    <h2><svg class="ic"><use href="#ic-clock"/></svg> これまでの練習 <span class="opt">― この端末に保存</span></h2>
     <div class="hist" id="hist"><div class="muted">まだありません。1枚描いて見せてみましょう。</div></div>
   </div>
 
@@ -276,15 +354,78 @@ window.addEventListener("paste",e=>{
   setSlot(which,f);
 });
 
+/* ================= お題（ローカル辞書＝オフライン・APIキーなしでも動く） ================= */
+const ODAI={
+  hand:["コップを持つ手","ピースサイン","スマホを持つ手","開いた手のひら","ペンを握る手","ページをめくる手","グーからパーへ開きかけの手","水をすくう両手"],
+  pose:["振り返る人","走る人","椅子に深く座る人","傘をさして歩く人","リュックを背負って歩く人","伸びをする人","靴ひもを結ぶ人","階段をのぼる人"],
+  animal:["香箱座りの猫","あくびする犬","羽ばたく直前の鳩","振り向くリス","泳ぐ金魚","毛づくろいするうさぎ","木にとまるフクロウ","のっそり歩くカメ"],
+  object:["マグカップ","折りたたみ傘","イヤホンとケース","スニーカー片方","めがね","ペットボトル","はさみ","腕時計"],
+  scene:["窓から見える電線と空","コンビニの外観","駅のホームの一角","机の上の一角","自転車置き場","夕方の路地","本棚の一段","信号機のある交差点"],
+  free:["今日の気分を天気にたとえて","最近食べたおいしいもの","行ってみたい場所","いま履いている靴","子どものころ好きだったもの","カバンの中身をひとつ","今日いちばん長く見たもの","「やわらかい」を絵で"]
+};
+let currentOdai="";
+$("btnOdai").addEventListener("click",()=>{
+  const list=ODAI[$("odaiGenre").value]||ODAI.free;
+  // 直前と同じお題は引き直す
+  let next=currentOdai;
+  for(let i=0;i<5&&next===currentOdai;i++)next=list[Math.floor(Math.random()*list.length)];
+  currentOdai=next;
+  const el=$("odaiText");el.textContent=currentOdai;el.style.display="block";
+});
+
+/* ================= タイマー（ジェスチャードローイング用） ================= */
+let durSec=30,timerId=null,remain=0;
+function fmt(s){return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
+$("durSeg").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-s]");if(!b||timerId)return;
+  durSec=+b.dataset.s;
+  [...$("durSeg").children].forEach(x=>x.classList.toggle("on",x===b));
+  $("timeLeft").textContent=fmt(durSec);
+});
+function chime(){
+  // 外部音源なしのやわらかい終了音（2音）
+  try{
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    [[660,0],[880,.22]].forEach(([f,dt])=>{
+      const o=ac.createOscillator(),g=ac.createGain();
+      o.type="sine";o.frequency.value=f;
+      g.gain.setValueAtTime(.001,ac.currentTime+dt);
+      g.gain.exponentialRampToValueAtTime(.18,ac.currentTime+dt+.02);
+      g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+dt+.5);
+      o.connect(g).connect(ac.destination);o.start(ac.currentTime+dt);o.stop(ac.currentTime+dt+.55);
+    });
+  }catch(e){}
+}
+function stopTimer(fin){
+  clearInterval(timerId);timerId=null;
+  $("timeLeft").classList.remove("running");
+  $("btnTimer").innerHTML='<svg class="ic"><use href="#ic-play"/></svg>スタート';
+  $("timeLeft").textContent=fmt(durSec);
+  if(fin){chime();setStatus("時間です。おつかれさま — 描けたら②から撮って、コーチに見せてください。",false,true);}
+}
+$("btnTimer").addEventListener("click",()=>{
+  if(timerId){stopTimer(false);return;}
+  remain=durSec;
+  $("timeLeft").textContent=fmt(remain);
+  $("timeLeft").classList.add("running");
+  $("btnTimer").innerHTML='<svg class="ic"><use href="#ic-stop"/></svg>やめる';
+  timerId=setInterval(()=>{
+    remain--;
+    $("timeLeft").textContent=fmt(Math.max(0,remain));
+    if(remain<=0)stopTimer(true);
+  },1000);
+});
+
 /* ================= プロンプト ================= */
 function buildPrompt(hasRef,memo){
   const memoLine=memo?`学習者はこの絵について「${memo}」と伝えています。それも踏まえてください。`:"";
+  const odaiLine=currentOdai?`今回の練習お題は「${currentOdai}」でした。お題への向き合い方にも軽く触れてください。`:"";
   const intro=hasRef
     ? "1枚目の画像はお手本（模写の元）、2枚目は学習者がそれを見て描いた絵です。お手本と見比べながら講評してください。"
     : "画像は学習者が描いた絵です（お手本なし）。絵そのものの魅力と基礎（形のとらえ方・線・明暗）を見てください。";
   return [
     "あなたは絵の練習に長年伴走してきた、優しく的確なコーチです。",
-    intro,memoLine,
+    intro,odaiLine,memoLine,
     "",
     "以下の3つの見出しを必ずこの順で使い、日本語で講評してください。",
     "",
@@ -343,7 +484,7 @@ async function readStream(res,onText){
 }
 async function callCoach(onText){
   const key=getKey();
-  if(!key){openKey();throw new Error("APIキーが未設定です（右上の⚙設定から・無料で取得できます）。");}
+  if(!key){openKey();throw new Error("APIキーが未設定です（右上の「設定」から・無料で取得できます）。");}
   const hasRef=!!images.ref;
   const prompt=buildPrompt(hasRef,$("memo").value.trim());
   const parts=[{text:prompt}];
@@ -398,8 +539,11 @@ async function callCoach(onText){
 }
 
 /* ================= 講評の表示 ================= */
-// 🌟/🔍/👣 の見出しで区切ってカード表示。形式が崩れていたら全文をそのまま出す
+// 🌟/🔍/👣 はAIとの「通信用マーカー」。画面では線画SVG＋見出しテキストに置き換える（絵文字非表示の規約）
+const SEC_ICON={good:"ic-star",grow:"ic-search",next:"ic-compass"};
+let shownText=""; // いま表示中の講評（コピー用の正典）
 function renderResult(text){
+  shownText=text;
   const host=$("result");host.innerHTML="";
   const secs=text.split(/(?=🌟|🔍|👣)/).map(s=>s.trim()).filter(Boolean);
   const known=secs.filter(s=>/^[🌟🔍👣]/.test(s));
@@ -411,7 +555,11 @@ function renderResult(text){
       const nl=s.indexOf("\n");
       const head=nl<0?s:s.slice(0,nl), bodyTxt=nl<0?"":s.slice(nl+1).trim();
       const d=document.createElement("div");d.className="sec "+cls;
-      const h=document.createElement("div");h.className="sh";h.textContent=head;
+      const h=document.createElement("div");h.className="sh";
+      if(cls){
+        h.innerHTML=`<svg class="ic"><use href="#${SEC_ICON[cls]}"/></svg> `;
+        h.append(head.replace(/^[🌟🔍👣]+\s*/,""));
+      }else h.textContent=head;
       d.append(h);
       if(bodyTxt){const p=document.createElement("p");p.textContent=bodyTxt;d.append(p);}
       host.append(d);
@@ -419,6 +567,22 @@ function renderResult(text){
   }
   $("resultCard").style.display="block";
 }
+/* ---- 講評コピー（クリップボード非対応環境はフォールバック） ---- */
+async function copyText(t){
+  if(!t)return;
+  try{await navigator.clipboard.writeText(t);return;}catch(_){}
+  const ta=document.createElement("textarea");
+  ta.value=t;ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.focus();ta.select();
+  try{document.execCommand("copy");}catch(e){}
+  ta.remove();
+}
+$("btnCopy").addEventListener("click",async()=>{
+  if(!shownText)return;
+  await copyText(shownText.replace(/[🌟🔍👣]\s*/g,""));
+  const b=$("btnCopy"),old=b.innerHTML;
+  b.textContent="コピーしました ✓";setTimeout(()=>b.innerHTML=old,1200);
+});
 
 /* ================= 実行 ================= */
 let running=false;
@@ -454,7 +618,7 @@ function setStatus(html,isErr,isOk){
 /* ================= 履歴 ================= */
 function pushHist(text){
   const h=loadHist();
-  h.unshift({ts:Date.now(),ref:images.ref?.thumb||null,art:images.art?.thumb||null,memo:$("memo").value.trim(),text});
+  h.unshift({ts:Date.now(),ref:images.ref?.thumb||null,art:images.art?.thumb||null,memo:$("memo").value.trim()||currentOdai,text});
   saveHist(h);renderHist();
 }
 function renderHist(){
@@ -467,9 +631,9 @@ function renderHist(){
     const hx=document.createElement("div");hx.className="hx";
     const hd=document.createElement("div");hd.className="hd";
     hd.textContent=new Date(it.ts).toLocaleDateString("ja-JP",{year:"numeric",month:"short",day:"numeric"})+(it.memo?` ― ${it.memo}`:"");
-    const ht=document.createElement("div");ht.className="ht";ht.textContent=(it.text||"").replace(/\s+/g," ").slice(0,60);
+    const ht=document.createElement("div");ht.className="ht";ht.textContent=(it.text||"").replace(/[🌟🔍👣]\s*/g,"").replace(/\s+/g," ").slice(0,60);
     hx.append(hd,ht);
-    const del=document.createElement("button");del.textContent="🗑";del.title="この記録を消す";
+    const del=document.createElement("button");del.innerHTML='<svg class="ic" style="margin:0;width:15px;height:15px"><use href="#ic-trash"/></svg>';del.title="この記録を消す";
     del.onclick=e=>{e.stopPropagation();const a=loadHist();a.splice(i,1);saveHist(a);renderHist();};
     row.append(img,hx,del);
     row.onclick=()=>{renderResult(it.text);$("resultCard").scrollIntoView({behavior:"smooth",block:"start"});};
@@ -489,9 +653,10 @@ $("keySave").addEventListener("click",()=>{
   setStatus(k?"キーを保存しました。":"キーを消去しました。",false,!!k);
 });
 $("keyModal").addEventListener("click",e=>{if(e.target===$("keyModal"))$("keyModal").classList.remove("open")});
+window.addEventListener("keydown",e=>{if(e.key==="Escape")$("keyModal").classList.remove("open")});
 
 /* ================= 初期化 ================= */
 renderHist();
 $("modelSelect").value=MODEL;
-if(!getKey()) setStatus('まず右上の <b>⚙設定</b> から Gemini APIキー（無料）を入れてください。',false);
+if(!getKey()) setStatus('まず右上の <b>設定</b> から Gemini APIキー（無料）を入れてください。お題とタイマーはキーなしでも使えます。',false);
 </script>
